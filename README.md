@@ -1,66 +1,66 @@
-# Rétro-ingénierie du firmware Panasonic VIERA plasma (plateforme PEAKS / UniPhier, 2010)
+# Reverse-engineering the Panasonic VIERA plasma firmware (PEAKS / UniPhier platform, 2010)
 
-> Étude technique menée **sur mon propre téléviseur**, à des fins **éducatives et de recherche en sécurité défensive**.
-> **Aucun firmware, binaire, clé ou fichier propriétaire Panasonic n'est redistribué ici** — ce dépôt ne contient que mon analyse et mes scripts.
-> Le firmware officiel se télécharge sur le support Panasonic ; les outils tiers utilisés sont liés vers leurs dépôts d'origine.
-
----
-
-## 1. Contexte
-
-- **Appareil** : téléviseur plasma Panasonic VIERA série **G20** (2010), modèle de la famille `TX-P42G20` / `GT20` / `VT20`.
-- **Plateforme** : Panasonic **PEAKS / UniPhier**, nom de build interne **PAL10LDA2 / EU10LDA2**.
-- **Firmware étudié** : update officiel **v2.612** (`P102_2612.zip`, ~24,9 Mo), distribué par Panasonic.
-- **Objectif initial** : comprendre pourquoi la partie « smart » (VieraCast) est inopérante (serveurs éteints), puis, par curiosité, auditer entièrement le firmware : technologies, fonctionnement, et niveau de verrouillage.
-
-Les sous-systèmes réseau « smart » de cette génération sont **sortants** (la TV contacte des serveurs Panasonic aujourd'hui hors service) ; il n'existe **pas** de commande réseau entrante (le « network remote control » n'apparaît que sur les modèles 2011+).
+> Technical study carried out **on my own television set**, for **educational and defensive security research** purposes.
+> **No Panasonic firmware, binary, key or proprietary file is redistributed here** — this repository contains only my analysis and my scripts.
+> The official firmware is available from Panasonic support; the third-party tools used are linked to their original repositories.
 
 ---
 
-## 2. Le conteneur `SDDL.SEC`
+## 1. Context
 
-Le `.zip` officiel se décompresse en un unique fichier **`SDDL.SEC`** (« Secured »), d'entropie ≈ 7,95/8 → **chiffré de bout en bout**.
+- **Device**: Panasonic VIERA **G20** plasma TV (2010), from the `TX-P42G20` / `GT20` / `VT20` family.
+- **Platform**: Panasonic **PEAKS / UniPhier**, internal build name **PAL10LDA2 / EU10LDA2**.
+- **Firmware studied**: official update **v2.612** (`P102_2612.zip`, ~24.9 MB), distributed by Panasonic.
+- **Initial goal**: understand why the "smart" part (VieraCast) is dead (servers shut down), then — out of curiosity — fully audit the firmware: technologies, how it works, and how locked down it is.
 
-Analyse de la structure (voir `scripts/analyze.py`) :
-
-- En-tête + table de descripteurs au début du fichier.
-- Charge utile découpée en **blocs de 512 Ko**, chacun précédé d'un descripteur ASCII (préfixes de taille type `0021XXXXXX PEAKS.T00/...`).
-- Magic de téléchargement `11 22 33 44`.
-
-### Couches de protection du paquet
-
-1. **`decipher()`** — une obfuscation maison (XOR à état, graine `904`, pas de 128 octets). Ce n'est pas de la cryptographie, juste du brouillage ; trivialement réversible.
-2. **Chiffrement par bloc** — **3DES** (modèles 2010) ou **AES-128-CBC** (2009 / certains 2010), avec des **clés symétriques**.
-3. **zlib** sur certains modules.
-
-Les clés symétriques ont été rétro-ingénierées par la communauté et sont **publiques** (voir `sddl_dec` ci-dessous). Comme il s'agit de chiffrement **symétrique**, « pouvoir déchiffrer » implique « pouvoir re-chiffrer ». Le déchiffrement du paquet n'est donc **pas** l'obstacle (cf. §6).
+The "smart" network subsystems of this generation are **outbound** (the TV reaches out to Panasonic servers that are now offline); there is **no inbound network control** (the "network remote control" protocol only appears on 2011+ models).
 
 ---
 
-## 3. Déchiffrement et dépaquetage
+## 2. The `SDDL.SEC` container
 
-Réalisé avec l'outil communautaire **[`theubusu/sddl_dec`](https://github.com/theubusu/sddl_dec)** (Rust, GPL-3) — à récupérer depuis son dépôt, non ré-hébergé ici.
+The official `.zip` decompresses into a single file, **`SDDL.SEC`** ("Secured"), with entropy ≈ 7.95/8 → **encrypted end to end**.
+
+Structure analysis (see `scripts/analyze.py`):
+
+- Header + descriptor table at the start of the file.
+- Payload split into **512 KB blocks**, each preceded by an ASCII descriptor (size prefixes like `0021XXXXXX PEAKS.T00/...`).
+- Download magic `11 22 33 44`.
+
+### Package protection layers
+
+1. **`decipher()`** — an in-house obfuscation (stateful XOR, seed `904`, period of 128 bytes). Not cryptography, just scrambling; trivially reversible.
+2. **Block cipher** — **3DES** (2010 models) or **AES-128-CBC** (2009 / some 2010), with **symmetric keys**.
+3. **zlib** on some modules.
+
+The symmetric keys were reverse-engineered by the community and are **public** (see `sddl_dec` below). Because this is **symmetric** encryption, "being able to decrypt" implies "being able to re-encrypt". Decrypting the package is therefore **not** the obstacle (see §6).
+
+---
+
+## 3. Decryption and unpacking
+
+Done with the community tool **[`theubusu/sddl_dec`](https://github.com/theubusu/sddl_dec)** (Rust, GPL-3) — obtain it from its own repository, not re-hosted here.
 
 ```
 sddl_dec -v -s SDDL.SEC out/
 ```
 
-Sortie :
+Output:
 
-- `SDIT.FDI` — table de description des modules (« Software Download Information Table »).
-- Modules **PEAKS** (firmware principal, ~115 segments) et **PEAKSBT** (bootloader).
-- Fichiers `*.TXT` listant les modèles ciblés : `TXPGT20E/L/R`, `TXPVTS20E`, `TXPVD20EA` → confirme la plateforme **P102** commune à la série.
+- `SDIT.FDI` — module description table ("Software Download Information Table").
+- **PEAKS** modules (main firmware, ~115 segments) and **PEAKSBT** (bootloader).
+- `*.TXT` files listing the target models: `TXPGT20E/L/R`, `TXPVTS20E`, `TXPVD20EA` → confirms the **P102** platform shared across the series.
 
 ---
 
-## 4. Partitions et système de fichiers
+## 4. Partitions and filesystem
 
-Le module `PEAKS.bin` est une image flash FreeBSD. En retirant le padding (magic `D50 ` à l'offset `0x200000`, arguments de boot `root=/dev/fma4`), on le découpe en partitions avec `sddl_dec -p`, puis on extrait les systèmes de fichiers **UFS2 big-endian** avec **[`theubusu/ufs-dump`](https://github.com/theubusu/ufs-dump)** (Rust, option `-p` pour superbloc à `0x2000`, cas « Old Panasonic PEAKS »).
+The `PEAKS.bin` module is a FreeBSD flash image. After trimming the padding (magic `D50 ` at offset `0x200000`, boot args `root=/dev/fma4`), it is split into partitions with `sddl_dec -p`, then the **big-endian UFS2** filesystems are extracted with **[`theubusu/ufs-dump`](https://github.com/theubusu/ufs-dump)** (Rust, `-p` option for a superblock at `0x2000`, the "Old Panasonic PEAKS" case).
 
-Table de montage (`/etc/fstab`) reconstituée :
+Reconstructed mount table (`/etc/fstab`):
 
-| Device | Montage | FS |
-|--------|---------|-----|
+| Device | Mount | FS |
+|--------|-------|-----|
 | `/dev/fma4` | `/` | UFS2 (ro) |
 | `/dev/fma5` | `/usr` | UFS2 (ro) |
 | `/dev/fma6` | `/lsidata` | UFS2 (ro) |
@@ -73,96 +73,96 @@ Table de montage (`/etc/fstab`) reconstituée :
 
 ---
 
-## 5. Architecture et pile technologique
+## 5. Architecture and technology stack
 
-| Couche | Technologie |
-|--------|-------------|
+| Layer | Technology |
+|-------|------------|
 | **SoC** | Panasonic **UniPhier** |
-| **CPU applicatif** | Cœur **propriétaire Panasonic** (vraisemblablement l'**IPP**, *Instruction Parallel Processor*) — ELF32 **big-endian**, `e_machine = 0x1040`, `e_flags = 0x00034000`, compilé avec un **fork privé de GCC 4.2.1** |
-| **Moteur image plasma** | **PEAKS** (« Picture Enhancement Accelerator with Kinetic System ») + microcode `uniphier.rom`, piloté par le démon `pied` |
-| **OS** | **FreeBSD** embarqué (userland complet : `init`, `geom`, `newfs`, `fsck_ffs`, `ifconfig`, `bsdtar`…) |
+| **Application CPU** | **Proprietary Panasonic** core (most likely the **IPP**, *Instruction Parallel Processor*) — ELF32 **big-endian**, `e_machine = 0x1040`, `e_flags = 0x00034000`, built with a **private fork of GCC 4.2.1** |
+| **Plasma image engine** | **PEAKS** ("Picture Enhancement Accelerator with Kinetic System") + `uniphier.rom` microcode, driven by the `pied` daemon |
+| **OS** | Embedded **FreeBSD** (full userland: `init`, `geom`, `newfs`, `fsck_ffs`, `ifconfig`, `bsdtar`…) |
 | **Shell** | `sash` |
-| **Couche applicative / UI** | **GLISP** — un dialecte **Lisp** maison Panasonic (608 fichiers `.lsp` définissant menus, EPG, télétexte, timer, etc.) |
-| **Navigateur (VieraCast)** | moteur **AjaxCE** + interpréteur JavaScript dédié |
+| **Application / UI layer** | **GLISP** — an in-house Panasonic **Lisp** dialect (608 `.lsp` files defining menus, EPG, teletext, timer, etc.) |
+| **Browser (VieraCast)** | **AjaxCE** engine + a dedicated JavaScript interpreter |
 
-### Chaîne de démarrage
+### Boot chain
 
 ```
-bootloader PEAKSBT → noyau FreeBSD → /sbin/init → /etc/initrc (config DTV)
-    → /usr/target/startrc :
+PEAKSBT bootloader → FreeBSD kernel → /sbin/init → /etc/initrc (DTV config)
+    → /usr/target/startrc:
         /usr/local/bin/initcfg
         /usr/pie/bin/pied &
-        exec /usr/local/bin/tvsh     (application TV principale)
+        exec /usr/local/bin/tvsh     (main TV application)
 ```
 
-### Fonctionnalités (démons `/usr/local/bin` + modules GLISP)
+### Features (daemons in `/usr/local/bin` + GLISP modules)
 
-- **TV / tuner** : scan satellite/terrestre/analogique, EPG, télétexte, sous-titres, **MHEG-5** (TV interactive).
-- **Réseau / smart** : `ajaxce` (VieraCast), `dlnad` (serveur DLNA), DHCP, Wi-Fi (`wpa_supplicant`), mise à jour logicielle (`ssu`).
-- **Enregistrement** : timer, enregistrement USB, cron.
-- **Services tiers** : Skype, Sky, guide Gemstar/Guide Plus.
-- **DRM / TV payante** : **CI+** (Common Interface Plus, certificats CAM), **PlayReady/Janus**, lecteur smartcard.
+- **TV / tuner**: satellite/terrestrial/analog scanning, EPG, teletext, subtitles, **MHEG-5** (interactive TV).
+- **Network / smart**: `ajaxce` (VieraCast), `dlnad` (DLNA server), DHCP, Wi-Fi (`wpa_supplicant`), software update (`ssu`).
+- **Recording**: timer, USB recording, cron.
+- **Third-party services**: Skype, Sky, Gemstar/Guide Plus EPG.
+- **DRM / pay-TV**: **CI+** (Common Interface Plus, CAM certificates), **PlayReady/Janus**, smartcard reader.
 
-Divers artéfacts internes de la chaîne de build Panasonic subsistent dans le firmware : hostname `target-takehara` (usine plasma de Takehara, Japon), adresses de labo `10.73.x` sur le domaine `tvrl.mei.co.jp`, lignes `gdbserver` commentées.
+Various internal Panasonic build-chain artifacts remain in the firmware: hostname `target-takehara` (Takehara plasma plant, Japan), lab addresses `10.73.x` on the `tvrl.mei.co.jp` domain, commented-out `gdbserver` lines.
 
 ---
 
-## 6. Analyse des protections (le vrai verrou)
+## 6. Protection analysis (the real lock)
 
-Déchiffrer ≠ pouvoir modifier et réinstaller. Le firmware d'update est **signé** :
+Decrypting ≠ being able to modify and reinstall. The update firmware is **signed**:
 
-- Clé **`/usr/ssl/ssu/public_key.pem`** = **RSA 1024 bits, exposant 65537**.
-- Le binaire `dlget` vérifie **chaque module** : messages `module%d signature err. ret=%d`, `secure_download: "verifying download"`.
-- La vérification passe par un **accélérateur cryptographique matériel** du SoC : `/dev/dtv/yamshar0` (racine de confiance probablement fusée dans le silicium).
+- Key **`/usr/ssl/ssu/public_key.pem`** = **RSA 1024-bit, exponent 65537**.
+- The `dlget` binary verifies **each module**: messages `module%d signature err. ret=%d`, `secure_download: "verifying download"`.
+- Verification goes through a **hardware crypto accelerator** in the SoC: `/dev/dtv/yamshar0` (root of trust likely fused into silicon).
 
-### Pourquoi on ne peut pas forger un firmware
+### Why forging a firmware is not possible
 
-| Opération | Clé nécessaire | Disponible ? |
-|-----------|----------------|--------------|
-| Déchiffrer / re-chiffrer le paquet | symétrique (publique) | ✅ |
-| **Vérifier** une signature | clé **publique** RSA | ✅ (dans la TV) |
-| **Créer** une signature | clé **privée** RSA | ❌ **jamais présente sur la TV** |
+| Operation | Key needed | Available? |
+|-----------|------------|------------|
+| Decrypt / re-encrypt the package | symmetric (public) | ✅ |
+| **Verify** a signature | **public** RSA key | ✅ (on the TV) |
+| **Create** a signature | **private** RSA key | ❌ **never present on the TV** |
 
-La clé privée n'existe **que** dans l'infrastructure de signature de Panasonic. Un système de signature est précisément conçu pour rester sûr **même quand l'attaquant possède et lit entièrement l'appareil**. Il n'y a donc **rien à extraire** (ni par le réseau, ni par la flash) : la clé qui permettrait de forger n'est pas là.
+The private key exists **only** in Panasonic's signing infrastructure. A signature scheme is specifically designed to stay secure **even when the attacker fully owns and reads the device**. There is therefore **nothing to extract** (neither over the network nor from flash): the key that would allow forging is simply not there.
 
-### Et une faille dans le vérificateur ?
+### What about a flaw in the verifier?
 
-Ce serait la seule brèche théorique « sans clé ». Mais le code de vérification (`dlget`, `PEAKSBT`) tourne sur le **CPU propriétaire** (`e_machine 0x1040`), pour lequel **il n'existe aucun désassembleur public** (ni binutils toute version — vérifié que ce **n'est pas** du MeP —, ni Ghidra, ni IDA). L'analyse statique de la logique de vérification est donc hors de portée sans :
-- le toolchain interne Panasonic (jamais publié), ou
-- la reconstruction complète de l'ISA (projet de recherche lourd), ou
-- des tests dynamiques en boîte noire sur le matériel (risque de brique).
+That would be the only theoretical "keyless" opening. But the verification code (`dlget`, `PEAKSBT`) runs on the **proprietary CPU** (`e_machine 0x1040`), for which **no public disassembler exists** (no binutils of any version — confirmed it is **not** MeP — no Ghidra, no IDA). Static analysis of the verification logic is therefore out of reach without:
+- Panasonic's internal toolchain (never released), or
+- a full reconstruction of the ISA (a heavy research project), or
+- black-box dynamic testing on the hardware (risk of bricking).
 
-À la date de cette étude, **aucune clé de signature Panasonic VIERA n'a fuité publiquement** et **aucune méthode de repack/bypass n'existe** pour ces plasmas.
+As of this study, **no Panasonic VIERA signing key has leaked publicly** and **no repack/bypass method exists** for these plasma sets.
 
 ---
 
 ## 7. Conclusions
 
-- ✅ Le **chiffrement** du firmware est compréhensible et réversible (clés symétriques publiques).
-- ✅ Le **filesystem FreeBSD** s'extrait entièrement et s'explore.
-- ✅ La pile technologique est entièrement cartographiée (UniPhier, FreeBSD, AjaxCE, GLISP, DRM CI+).
-- ❌ **Repacker un firmware modifié accepté par la TV = impossible** : la signature **RSA** exige la clé privée de Panasonic, absente de l'appareil.
-- ❌ **Remplacer l'OS (Android, système maison, Plex natif…) = impossible** : CPU propriétaire sans toolchain public, pile A/V fermée et câblée au matériel plasma, bootloader signé.
-- ➡️ Pour moderniser l'usage : une **box HDMI externe** (Android TV / HTPC) reste la voie pertinente, la dalle plasma servant d'écran.
+- ✅ The firmware **encryption** is understandable and reversible (public symmetric keys).
+- ✅ The **FreeBSD filesystem** can be fully extracted and explored.
+- ✅ The technology stack is fully mapped (UniPhier, FreeBSD, AjaxCE, GLISP, CI+ DRM).
+- ❌ **Repacking a modified firmware the TV will accept = impossible**: the **RSA** signature requires Panasonic's private key, absent from the device.
+- ❌ **Replacing the OS (Android, a homemade system, native Plex…) = impossible**: proprietary CPU with no public toolchain, a closed A/V stack wired to the plasma hardware, a signed bootloader.
+- ➡️ To modernize usage: an **external HDMI box** (Android TV / HTPC) remains the sensible path, with the plasma panel used as the display.
 
-Leçon : l'appareil est verrouillé à un niveau que même sa fin de vie commerciale ne déverrouille pas — non pas par le chiffrement, mais par la **signature asymétrique** et une **ISA CPU propriétaire** indisponible publiquement.
-
----
-
-## 8. Outils
-
-- [`theubusu/sddl_dec`](https://github.com/theubusu/sddl_dec) — déchiffrement/dépaquetage `SDDL.SEC` (Rust, GPL-3).
-- [`theubusu/ufs-dump`](https://github.com/theubusu/ufs-dump) — extraction UFS big-endian (Rust).
-- `scripts/analyze.py` (ce dépôt) — analyse d'entropie et de signatures d'une image firmware.
-- Firmware officiel : support Panasonic (Global Digital AV Support).
+Takeaway: the device is locked at a level that even the end of its commercial life does not unlock — not by the encryption, but by the **asymmetric signature** and a **proprietary CPU ISA** that is not publicly available.
 
 ---
 
-## 9. Mentions légales et éthiques
+## 8. Tools
 
-Étude réalisée sur **mon propre matériel**, à des fins **éducatives et de recherche**. Ce dépôt **ne redistribue aucun contenu propriétaire Panasonic** (ni firmware, ni binaire, ni système de fichiers, ni clé, ni certificat) : uniquement mon analyse et mes scripts. Les clés de déchiffrement symétriques évoquées sont déjà publiques dans des outils tiers et ne sont pas reproduites ici. Aucune technique de contournement de signature n'a été trouvée ni publiée. Les marques et noms cités appartiennent à leurs détenteurs respectifs.
+- [`theubusu/sddl_dec`](https://github.com/theubusu/sddl_dec) — `SDDL.SEC` decryption/unpacking (Rust, GPL-3).
+- [`theubusu/ufs-dump`](https://github.com/theubusu/ufs-dump) — big-endian UFS extraction (Rust).
+- `scripts/analyze.py` (this repo) — entropy and signature analysis of a firmware image.
+- Official firmware: Panasonic support (Global Digital AV Support).
 
-## 10. Licence
+---
 
-- Texte (ce `README.md` et la documentation) : **CC BY 4.0**.
-- Code (`scripts/`) : **MIT**.
+## 9. Legal and ethical notice
+
+Study carried out on **my own hardware**, for **educational and research** purposes. This repository **does not redistribute any proprietary Panasonic content** (no firmware, binary, filesystem, key or certificate): only my analysis and my scripts. The symmetric decryption keys referenced are already public in third-party tools and are not reproduced here. No signature-bypass technique was found or published. Trademarks and names mentioned belong to their respective owners.
+
+## 10. License
+
+- Text (this `README.md` and the documentation): **CC BY 4.0**.
+- Code (`scripts/`): **MIT**.
