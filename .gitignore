@@ -1,0 +1,20 @@
+# Sécurité : ne JAMAIS committer de contenu propriétaire Panasonic
+*.SEC
+*.sec
+*.zip
+*.bin
+*.tar
+*.img
+*.pem
+*.crt
+*.key
+*.rom
+*.lsp
+rootfs/
+rootfs_usrlocal/
+sddl_out/
+peaks_parts/
+extracted/
+firmware-dl/
+kernel_*
+*.elf
